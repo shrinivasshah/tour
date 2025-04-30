@@ -1,0 +1,107 @@
+$primary-color: #3b82f6;
+$secondary-color: #6b7280;
+$success-color: #10b981;
+$warning-color: #f59e0b;
+$error-color: #ef4444;
+$background-color: #ffffff;
+$text-color: #1f2937;
+$border-color: #e5e7eb;
+$border-radius: 6px;
+$box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+$transition-speed: 0.2s;
+
+.demoContainer {
+    padding: 24px;
+    max-width: 640px;
+    margin: 0 auto;
+  }
+  
+  .demoHeader {
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 24px;
+  }
+  
+  .demoText {
+    margin-bottom: 16px;
+    color: $secondary-color;
+  }
+  
+  .primaryButton {
+    padding: 8px 16px;
+    background-color: $primary-color;
+    color: white;
+    border: none;
+    border-radius: $border-radius;
+    cursor: pointer;
+    margin-bottom: 32px;
+    transition: background-color $transition-speed;
+    
+    &:hover {
+      background-color: darken($primary-color, 10%);
+    }
+  }
+  
+  .demoButtonGroup {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 32px;
+  }
+  
+  .demoButton {
+    padding: 8px 16px;
+    border: none;
+    border-radius: $border-radius;
+    color: white;
+    cursor: pointer;
+    transition: opacity $transition-speed;
+    
+    &:hover {
+      opacity: 0.9;
+    }
+  }
+  
+  .dashboardButton {
+    background-color: $success-color;
+  }
+  
+  .settingsButton {
+    background-color: $secondary-color;
+  }
+  
+  .helpButton {
+    background-color: $warning-color;
+  }
+  
+  .usageBox {
+    border: 1px solid $border-color;
+    padding: 16px;
+    border-radius: $border-radius;
+    background-color: #f9fafb;
+  }
+  
+  .usageTitle {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  
+  .usageList {
+    list-style-type: decimal;
+    padding-left: 20px;
+    
+    li {
+      margin-bottom: 8px;
+      
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+  }
+  
+  .inlineCode {
+    background-color: #e5e7eb;
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-family: monospace;
+  }

@@ -1,0 +1,55 @@
+$primary-color: #3b82f6;
+$secondary-color: #6b7280;
+$success-color: #10b981;
+$warning-color: #f59e0b;
+$error-color: #ef4444;
+$background-color: #ffffff;
+$text-color: #1f2937;
+$border-color: #e5e7eb;
+$border-radius: 6px;
+$box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+$transition-speed: 0.2s;
+
+.tourOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9990;
+  pointer-events: none; // Allow clicking through the overlay container
+}
+
+.backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: black;
+  z-index: 9991;
+  pointer-events: auto; // Capture clicks on the backdrop
+}
+
+.backdropWithHole {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9991;
+}
+
+.backdropPart {
+  position: fixed;
+  background-color: black;
+  pointer-events: auto; // Capture clicks on the backdrop parts
+}
+
+.highlightBorder {
+  position: fixed;
+  z-index: 9992;
+  border-radius: 4px;
+  pointer-events: none; // Let clicks go through to the actual component
+  box-sizing: border-box;
+}

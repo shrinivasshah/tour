@@ -1,0 +1,53 @@
+$primary-color: #3b82f6;
+$secondary-color: #6b7280;
+$success-color: #10b981;
+$warning-color: #f59e0b;
+$error-color: #ef4444;
+$background-color: #ffffff;
+$text-color: #1f2937;
+$border-color: #e5e7eb;
+$border-radius: 6px;
+$box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+$transition-speed: 0.2s;
+
+.tourModal {
+    background-color: $background-color;
+    border-radius: $border-radius;
+    box-shadow: $box-shadow;
+    pointer-events: auto;
+    max-width: 500px;
+    width: calc(100% - 32px);
+    margin: 0 16px;
+    z-index: 20;
+    
+    .modalHeader {
+      padding: 16px;
+      border-bottom: 1px solid $border-color;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .modalTitle {
+      font-size: 18px;
+      font-weight: 500;
+      color: $text-color;
+      margin: 0;
+    }
+    
+    .modalContent {
+      padding: 16px;
+    }
+    
+    .modalText {
+      color: $secondary-color;
+      line-height: 1.5;
+    }
+    
+    .modalFooter {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 16px;
+    }
+  }
