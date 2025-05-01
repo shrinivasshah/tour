@@ -27,11 +27,15 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
   const [pointerClass, setPointerClass] = useState<string>(styles.pointerUp); // Default pointer
   
   const dialogRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const spotlightRef = useRef<HTMLDivElement | null>(null);
   const announcer = useRef<HTMLDivElement>(null);
   const previousActiveElement = useRef<HTMLElement | null>(null);
   const firstFocusableElementRef = useRef<HTMLElement | null>(null);
   const lastFocusableElementRef = useRef<HTMLElement | null>(null);
-  const highlightRef = useRef<HTMLDivElement | null>(null);
+  
+  // Collection to track elements with modified styles for cleanup
+  const modifiedElements = useRef<Map<Element, { prop: string, value: string }[]>>(new Map());
 
   // Find all focusable elements within a container
   const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
@@ -120,6 +124,78 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
     }
   };
 
+  // Track style changes for cleanup
+  const setAndTrackStyle = useCallback((element: Element, property: string, value: string) => {
+    // Store original value for restoration
+    const originalValue = element instanceof HTMLElement ? 
+      element.style[property as any] || '' : '';
+    
+    // Add to tracking map
+    if (!modifiedElements.current.has(element)) {
+      modifiedElements.current.set(element, []);
+    }
+    
+    modifiedElements.current.get(element)?.push({
+      prop: property,
+      value: originalValue
+    });
+    
+    // Set the new style
+    if (element instanceof HTMLElement) {
+      element.style[property as any] = value;
+    }
+  }, []);
+
+  // Create spotlight effect around target element - improved non-glitchy version
+  const highlightTarget = useCallback((targetElement: Element) => {
+    const targetRect = targetElement.getBoundingClientRect();
+    
+    // Remove any existing spotlight to avoid stacking issues
+    if (spotlightRef.current) {
+      spotlightRef.current.remove();
+      spotlightRef.current = null;
+    }
+    
+    // Create a new spotlight element that's just a solid rectangle
+    const spotlight = document.createElement('div');
+    spotlight.className = styles.targetSpotlight;
+    document.body.appendChild(spotlight);
+    spotlightRef.current = spotlight;
+    
+    // Position and size the spotlight to exactly match the target element
+    // Add a small padding for better visibility
+    const padding = 5;
+    spotlight.style.top = `${targetRect.top - padding}px`;
+    spotlight.style.left = `${targetRect.left - padding}px`;
+    spotlight.style.width = `${targetRect.width + (padding * 2)}px`;
+    spotlight.style.height = `${targetRect.height + (padding * 2)}px`;
+    
+    // Bring the target element to the foreground
+    if (targetElement instanceof HTMLElement) {
+      // First, check computed styles to handle elements with no explicit position
+      const computedStyle = window.getComputedStyle(targetElement);
+      const currentPosition = computedStyle.position;
+      
+      // Only change position if it's static (default)
+      if (currentPosition === 'static') {
+        setAndTrackStyle(targetElement, 'position', 'relative');
+      }
+      
+      // Set a high z-index to ensure it's above the backdrop
+      setAndTrackStyle(targetElement, 'zIndex', '10000'); // Higher than backdrop
+
+      // Add a subtle background overlay
+      setAndTrackStyle(targetElement, 'backgroundColor', 'rgba(255, 255, 255, 0.1)');
+    }
+    
+    // Make sure the element is visible in the viewport
+    targetElement.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+      inline: 'center'
+    });
+  }, [setAndTrackStyle]);
+
   // Position the dialog relative to the target element
   const positionDialog = useCallback(() => {
     const currentTourStep = steps[currentStep];
@@ -136,22 +212,8 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
     const newPointerClass = getPointerClass(position);
     setPointerClass(newPointerClass);
 
-    // Create or update highlight element
-    if (!highlightRef.current) {
-      const highlight = document.createElement('div');
-      highlight.className = styles.targetHighlight;
-      document.body.appendChild(highlight);
-      highlightRef.current = highlight;
-    }
-
-    const highlight = highlightRef.current;
-    highlight.style.left = `${targetRect.left}px`;
-    highlight.style.top = `${targetRect.top}px`;
-    highlight.style.width = `${targetRect.width}px`;
-    highlight.style.height = `${targetRect.height}px`;
-
-    // Make sure the highlighted element is visible
-    targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Highlight the target element
+    highlightTarget(targetElement);
 
     // Position the dialog - adjust positions to account for the pointers
     switch (position) {
@@ -186,14 +248,37 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
     } else if (dialogRect.bottom > window.innerHeight) {
       dialog.style.top = `${window.innerHeight - dialogRect.height - 10}px`;
     }
-  }, [currentStep, steps]);
+  }, [currentStep, steps, highlightTarget]);
 
-  // Clean up highlight element
-  const removeHighlight = useCallback(() => {
-    if (highlightRef.current) {
-      highlightRef.current.remove();
-      highlightRef.current = null;
+  // Clean up spotlight and restore original element styles
+  const cleanupHighlight = useCallback(() => {
+    // Remove spotlight element
+    if (spotlightRef.current) {
+      spotlightRef.current.remove();
+      spotlightRef.current = null;
     }
+    
+    // Reset backdrop if needed
+    if (backdropRef.current) {
+      backdropRef.current.style.clipPath = 'none';
+      backdropRef.current.style.webkitClipPath = 'none';
+    }
+    
+    // Restore original styles to all modified elements
+    modifiedElements.current.forEach((styles, element) => {
+      if (element instanceof HTMLElement) {
+        styles.forEach(({ prop, value }) => {
+          if (value === '') {
+            element.style[prop as any] = '';
+          } else {
+            element.style[prop as any] = value;
+          }
+        });
+      }
+    });
+    
+    // Clear the tracking map
+    modifiedElements.current.clear();
   }, []);
 
   // Effect for handling tour open/close
@@ -212,7 +297,9 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
       document.addEventListener('keydown', handleKeyDown);
     } else {
       setIsVisible(false);
-      removeHighlight();
+      cleanupHighlight();
+      // Reset currentStep to 0 when tour is closed
+      setCurrentStep(0);
       
       // Restore focus to the previous active element
       if (previousActiveElement.current && 'focus' in previousActiveElement.current) {
@@ -226,13 +313,16 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
     // Cleanup function
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      removeHighlight();
+      cleanupHighlight();
     };
-  }, [isOpen, currentStep, steps, handleKeyDown, announce, removeHighlight]);
+  }, [isOpen, currentStep, steps, handleKeyDown, announce, cleanupHighlight]);
 
   // Effect for handling step changes
   useEffect(() => {
     if (isVisible) {
+      // First clean up previous highlighting
+      cleanupHighlight();
+      
       // Force re-render the dialog by changing its key
       setDialogKey(prevKey => prevKey + 1);
       
@@ -248,12 +338,13 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
         }, 100);
       }
     }
-  }, [currentStep, isVisible, steps, positionDialog, setupFocusTrap, announce]);
+  }, [currentStep, isVisible, steps, positionDialog, setupFocusTrap, announce, cleanupHighlight]);
 
   // Window resize handler to reposition the dialog
   useEffect(() => {
     const handleResize = () => {
       if (isVisible) {
+        cleanupHighlight();
         positionDialog();
       }
     };
@@ -262,7 +353,7 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
     return () => {
       window.removeEventListener('resize', handleResize);
     };
-  }, [isVisible, positionDialog]);
+  }, [isVisible, positionDialog, cleanupHighlight]);
 
   // Handle navigation between steps
   const handleNext = () => {
@@ -302,6 +393,14 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
         role="status"
       />
       
+      {/* Semi-transparent backdrop */}
+      <div
+        ref={backdropRef}
+        className={styles.tourBackdrop}
+        aria-hidden="true"
+      />
+      
+      {/* Tour overlay for handling clicks */}
       <div className={styles.tourOverlay} aria-hidden="true" onClick={onClose}>
         {/* Using the key prop to force re-render on step change */}
         <div
