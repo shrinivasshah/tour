@@ -23,7 +23,7 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
 }) => {
   const [currentStep, setCurrentStep] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
-  const [dialogKey, setDialogKey] = useState(0);
+  const [dialogKeys, setDialogKeys] = useState<number[]>([0]); // Array to hold dialog keys
   const [pointerClass, setPointerClass] = useState<string>(styles.pointerUp); // Default pointer
   
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -293,8 +293,8 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
         announce(`Tour step ${currentStep + 1} of ${steps.length}: ${step.title}`);
       }
       
-      // Add event listener for keyboard navigation
-      document.addEventListener('keydown', handleKeyDown);
+      // Add event listener for keyboard navigation - using document.body to ensure capture
+      document.body.addEventListener('keydown', handleKeyDown);
     } else {
       setIsVisible(false);
       cleanupHighlight();
@@ -306,13 +306,13 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
         previousActiveElement.current.focus();
       }
       
-      // Remove event listener
-      document.removeEventListener('keydown', handleKeyDown);
+      // Remove event listener - using document.body to ensure removal
+      document.body.removeEventListener('keydown', handleKeyDown);
     }
     
     // Cleanup function
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
+      document.body.removeEventListener('keydown', handleKeyDown);
       cleanupHighlight();
     };
   }, [isOpen, currentStep, steps, handleKeyDown, announce, cleanupHighlight]);
@@ -323,13 +323,9 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
       // First clean up previous highlighting
       cleanupHighlight();
       
-      // Force re-render the dialog by changing its key
-      setDialogKey(prevKey => prevKey + 1);
-      
+      // Position dialog after a small delay to ensure DOM is ready
       if (currentStep < steps.length) {
         const step = steps[currentStep];
-        
-        // Position dialog after a small delay to ensure DOM is ready
         setTimeout(() => {
           positionDialog();
           setupFocusTrap();
@@ -358,6 +354,8 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
   // Handle navigation between steps
   const handleNext = () => {
     if (currentStep < steps.length - 1) {
+      // Add a new key to dialogKeys to trigger a new dialog
+      setDialogKeys(prevKeys => [...prevKeys, prevKeys.length]);
       setCurrentStep(currentStep + 1);
     } else {
       handleComplete();
@@ -402,62 +400,65 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
       
       {/* Tour overlay for handling clicks */}
       <div className={styles.tourOverlay} aria-hidden="true" onClick={onClose}>
-        {/* Using the key prop to force re-render on step change */}
-        <div
-          key={dialogKey}
-          ref={dialogRef}
-          className={`${styles.tourDialog} ${pointerClass}`}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="tour-title"
-          aria-describedby="tour-content"
-          onClick={(e) => e.stopPropagation()}
-          tabIndex={-1}
-        >
-          <header className={styles.tourHeader}>
-            <h2 
-              id="tour-title" 
-              tabIndex={-1}
-              className={styles.tourTitle}
-            >
-              {currentTourStep.title}
-            </h2>
-            <button
-              className={styles.closeButton}
-              aria-label="Close tour"
-              onClick={onClose}
-            >
-              ×
-            </button>
-          </header>
-          
-          <div id="tour-content" className={styles.tourContent}>
-            {currentTourStep.content}
+        {/* Render each dialog based on the keys in dialogKeys */}
+        {dialogKeys.map((key, index) => (
+          <div
+            key={key}
+            ref={dialogRef}
+            className={`${styles.tourDialog} ${pointerClass}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="tour-title"
+            aria-describedby="tour-content"
+            onClick={(e) => e.stopPropagation()}
+            tabIndex={-1}
+            style={{ display: index === dialogKeys.length - 1 ? 'block' : 'none' }} // Show only the last dialog
+          >
+            <header className={styles.tourHeader}>
+              <h2 
+                id="tour-title" 
+                tabIndex={-1}
+                className={styles.tourTitle}
+              >
+                {currentTourStep.title}
+              </h2>
+              <button
+                className={styles.closeButton}
+                aria-label="Close tour"
+                onClick={onClose}
+              >
+                ×
+              </button>
+            </header>
+            
+            <div id="tour-content" className={styles.tourContent}>
+              {currentTourStep.content}
+            </div>
+            
+            <footer className={styles.tourControls}>
+              <div className={styles.tourProgress}>
+                Step {currentStep + 1} of {steps.length}
+              </div>
+              <div className={styles.tourButtons}>
+                {currentStep > 0 && (
+                  <button onClick={handlePrevious} aria-label="Previous step">
+                    Previous
+                  </button>
+                )}
+                
+                {currentStep < steps.length - 1 ? (
+                  <button onClick={handleNext} aria-label="Next step">
+                    Next
+                  </button>
+                ) : (
+                  <button onClick={handleComplete} aria-label="Complete tour">
+                    Finish
+                  </button>
+                )}
+              </div>
+            </footer>
           </div>
-          
-          <footer className={styles.tourControls}>
-            <div className={styles.tourProgress}>
-              Step {currentStep + 1} of {steps.length}
-            </div>
-            <div className={styles.tourButtons}>
-              {currentStep > 0 && (
-                <button onClick={handlePrevious} aria-label="Previous step">
-                  Previous
-                </button>
-              )}
-              
-              {currentStep < steps.length - 1 ? (
-                <button onClick={handleNext} aria-label="Next step">
-                  Next
-                </button>
-              ) : (
-                <button onClick={handleComplete} aria-label="Complete tour">
-                  Finish
-                </button>
-              )}
-            </div>
-          </footer>
-        </div>
+        ))}
       </div>
     </>
   );
