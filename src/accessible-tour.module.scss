@@ -70,7 +70,11 @@ $z-dialog: 9200;
   box-shadow: $box-shadow;
   padding: 16px;
   z-index: $z-dialog; // Highest z-index to be on top
-  
+  transition: opacity 300ms ease, transform 300ms ease, visibility 300ms ease;
+  opacity: 1;
+  visibility: visible;
+  transform: scale(1);
+
   &:focus {
     outline: none;
   }
@@ -221,5 +225,19 @@ $z-dialog: 9200;
       outline: 2px solid $primary-color;
       outline-offset: 2px;
     }
+
+    &[disabled] {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
   }
+}
+
+// Transitioning class for animations
+.transitioning {
+  opacity: 0;
+  visibility: hidden; /* Ensure it's fully hidden */
+  transform: scale(0.95);
+  pointer-events: none;
+  transition: opacity 600ms ease, transform 300ms ease, visibility 300ms ease;
 }
