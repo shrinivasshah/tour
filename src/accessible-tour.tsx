@@ -53,6 +53,8 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
   const [tooltipPosition, setTooltipPosition] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [tooltipPlacement, setTooltipPlacement] = useState<'top' | 'right' | 'bottom' | 'left'>('bottom');
   const [beaconVisible, setBeaconVisible] = useState(false);
+  // Add state to track if we should create aria-hidden barriers
+  const [isDialogMounted, setIsDialogMounted] = useState(false);
 
   const tooltipRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -65,8 +67,68 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
   const nextStepRef = useRef<number>(0);
   const targetElementRef = useRef<Element | null>(null);
   const scrollListenerRef = useRef<(() => void) | null>(null);
+  // Add ref for tracking aria-hidden elements
+  const ariaHiddenElements = useRef<Map<Element, string | null>>(new Map());
 
   const modifiedElements = useRef<Map<Element, { prop: string; value: string }[]>>(new Map());
+
+  // Function to hide all content from screen readers except the tour
+  const hideContentFromScreenReaders = useCallback(() => {
+    // Clear previous aria-hidden attributes
+    ariaHiddenElements.current.forEach((originalValue, element) => {
+      if (element instanceof HTMLElement) {
+        if (originalValue === null) {
+          element.removeAttribute('aria-hidden');
+        } else {
+          element.setAttribute('aria-hidden', originalValue);
+        }
+      }
+    });
+    ariaHiddenElements.current.clear();
+
+    // Skip if the tooltip isn't mounted yet
+    if (!tooltipRef.current || !isDialogMounted) return;
+
+    // Get all direct children of body
+    const bodyChildren = Array.from(document.body.children);
+    
+    // Hide everything except the tour elements
+    bodyChildren.forEach(child => {
+      // Skip the tour elements
+      if (
+        child === tooltipRef.current ||
+        child === backdropRef.current ||
+        child === spotlightRef.current ||
+        child === beaconRef.current ||
+        child === announcer.current ||
+        child.classList.contains(styles.srOnly) ||
+        child.getAttribute('aria-hidden') === 'true'
+      ) {
+        return;
+      }
+
+      // Store original aria-hidden value
+      const originalAriaHidden = child.getAttribute('aria-hidden');
+      ariaHiddenElements.current.set(child, originalAriaHidden);
+      
+      // Set aria-hidden="true"
+      child.setAttribute('aria-hidden', 'true');
+    });
+  }, [isDialogMounted]);
+
+  // Function to restore all content for screen readers
+  const restoreContentForScreenReaders = useCallback(() => {
+    ariaHiddenElements.current.forEach((originalValue, element) => {
+      if (element instanceof HTMLElement) {
+        if (originalValue === null) {
+          element.removeAttribute('aria-hidden');
+        } else {
+          element.setAttribute('aria-hidden', originalValue);
+        }
+      }
+    });
+    ariaHiddenElements.current.clear();
+  }, []);
 
   const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
     const focusableElements = container.querySelectorAll<HTMLElement>(
@@ -121,14 +183,18 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
     [isVisible, onClose]
   );
 
-  const announce = useCallback((message: string) => {
+  const announce = useCallback((message: string, priority: 'assertive' | 'polite' = 'assertive') => {
     if (announcer.current) {
+      // Update aria-live attribute directly
+      announcer.current.setAttribute('aria-live', priority);
+      
+      // Clear previous announcement and add the new one with a slight delay
       announcer.current.textContent = '';
       setTimeout(() => {
         if (announcer.current) {
           announcer.current.textContent = message;
         }
-      }, 10);
+      }, 50);
     }
   }, []);
 
@@ -160,6 +226,8 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
 
     const beacon = document.createElement('div');
     beacon.className = styles.tourBeacon;
+    // Make beacon invisible to screen readers
+    beacon.setAttribute('aria-hidden', 'true');
     document.body.appendChild(beacon);
     beaconRef.current = beacon;
 
@@ -196,6 +264,8 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
 
       const spotlight = document.createElement('div');
       spotlight.className = styles.tourSpotlight;
+      // Make spotlight invisible to screen readers
+      spotlight.setAttribute('aria-hidden', 'true');
       document.body.appendChild(spotlight);
       spotlightRef.current = spotlight;
 
@@ -412,19 +482,23 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
     });
 
     modifiedElements.current.clear();
-  }, []);
+    
+    // Restore original aria-hidden values
+    restoreContentForScreenReaders();
+  }, [restoreContentForScreenReaders]);
 
   useEffect(() => {
     if (isOpen) {
       setIsVisible(true);
+      setIsDialogMounted(true);
       previousActiveElement.current = document.activeElement as HTMLElement;
 
-      if (currentStep < steps.length) {
-        const step = steps[currentStep];
-        announce(`Tour step ${currentStep + 1} of ${steps.length}: ${step.title}`);
-      }
-
       document.body.addEventListener('keydown', handleKeyDown);
+      
+      // Apply aria-hidden to everything else
+      setTimeout(() => {
+        hideContentFromScreenReaders();
+      }, 50);
     } else {
       setIsVisible(false);
       cleanupHighlight();
@@ -435,13 +509,34 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
       }
 
       document.body.removeEventListener('keydown', handleKeyDown);
+      
+      // Cleanup and restore aria-hidden attributes
+      setTimeout(() => {
+        setIsDialogMounted(false);
+      }, 300);
     }
 
     return () => {
       document.body.removeEventListener('keydown', handleKeyDown);
       cleanupHighlight();
     };
-  }, [isOpen, currentStep, steps, handleKeyDown, announce, cleanupHighlight]);
+  }, [isOpen, handleKeyDown, cleanupHighlight, hideContentFromScreenReaders]);
+
+  // Handle step changes and announcements
+  useEffect(() => {
+    // Only announce when visible and not transitioning
+    if (isVisible && !isTransitioning && currentStep < steps.length) {
+      const step = steps[currentStep];
+      
+      // Only announce steps after dialog is ready
+      if (tooltipRef.current) {
+        // Delay announcement to ensure dialog is ready
+        setTimeout(() => {
+          announce(`Tour step ${currentStep + 1} of ${steps.length}: ${step.title}. ${step.content}`);
+        }, 200);
+      }
+    }
+  }, [currentStep, isVisible, isTransitioning, steps, announce]);
 
   useEffect(() => {
     if (isVisible) {
@@ -455,13 +550,15 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
             setTimeout(() => {
               positionTooltip();
               setupFocusTrap();
+              
+              // Hide everything else from screen readers when dialog is ready
+              hideContentFromScreenReaders();
             }, 100);
           });
         }
-        announce(`Tour step ${currentStep + 1} of ${steps.length}: ${step.title}. ${step.content}`);
       }
     }
-  }, [currentStep, isVisible, steps, positionTooltip, setupFocusTrap, announce, cleanupHighlight, highlightTarget]);
+  }, [currentStep, isVisible, steps, positionTooltip, setupFocusTrap, cleanupHighlight, highlightTarget, hideContentFromScreenReaders]);
 
   useEffect(() => {
     // Set up scroll and resize event listeners
@@ -500,18 +597,34 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
       setIsTransitioning(true);
       nextStepRef.current = currentStep + 1;
 
+      // Hide tooltip while transitioning
       if (tooltipRef.current) {
         tooltipRef.current.style.opacity = '0';
       }
+      
+      // Announce transition to prevent screen readers from reading background content
+      announce("Moving to next step...", "assertive");
+      
+      // Make sure background content is hidden during transition
+      hideContentFromScreenReaders();
 
       setTimeout(() => {
         setCurrentStep(nextStepRef.current);
+        
+        // Give time for DOM to update before showing tooltip again
         setTimeout(() => {
           if (tooltipRef.current) {
             tooltipRef.current.style.opacity = '1';
+            
+            // Focus on the title of the new step
+            const title = tooltipRef.current.querySelector<HTMLElement>('#tour-title');
+            if (title) {
+              title.focus();
+            }
           }
+          
           setIsTransitioning(false);
-        }, 50);
+        }, 100);
       }, 200);
     } else {
       handleComplete();
@@ -523,18 +636,34 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
       setIsTransitioning(true);
       nextStepRef.current = currentStep - 1;
 
+      // Hide tooltip while transitioning
       if (tooltipRef.current) {
         tooltipRef.current.style.opacity = '0';
       }
+      
+      // Announce transition to prevent screen readers from reading background content
+      announce("Moving to previous step...", "assertive");
+      
+      // Make sure background content is hidden during transition
+      hideContentFromScreenReaders();
 
       setTimeout(() => {
         setCurrentStep(nextStepRef.current);
+        
+        // Give time for DOM to update before showing tooltip again
         setTimeout(() => {
           if (tooltipRef.current) {
             tooltipRef.current.style.opacity = '1';
+            
+            // Focus on the title of the new step
+            const title = tooltipRef.current.querySelector<HTMLElement>('#tour-title');
+            if (title) {
+              title.focus();
+            }
           }
+          
           setIsTransitioning(false);
-        }, 50);
+        }, 100);
       }, 200);
     }
   };
@@ -554,10 +683,10 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
 
   return (
     <>
+      {/* Better announcer with more control */}
       <div
         ref={announcer}
         aria-live="assertive"
-        aria-atomic="true"
         className={styles.srOnly}
         role="status"
       />
@@ -580,7 +709,6 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
         aria-labelledby="tour-title"
         aria-describedby="tour-content"
         onClick={(e) => e.stopPropagation()}
-        tabIndex={-1}
         style={{
           top: `${tooltipPosition.top}px`,
           left: `${tooltipPosition.left}px`,
@@ -595,6 +723,7 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
             tooltipPlacement === 'bottom' ? styles.arrowBottom : 
             styles.arrowLeft
           }`}
+          aria-hidden="true"
         />
 
         <header className={styles.tooltipHeader}>
@@ -623,7 +752,7 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
 
         <footer className={styles.tooltipFooter}>
           {showProgress && (
-            <div className={styles.progressIndicator}>
+            <div className={styles.progressIndicator} aria-live="polite">
               {currentStep + 1} of {steps.length}
             </div>
           )}

@@ -185,6 +185,8 @@ $z-dialog: 100000;
   margin-top: 12px; // Increased from 4px for better spacing
   padding-top: 0; // Remove any padding that might create visual separation
   border-top: none; // Ensure no border creates a horizontal rule
+  padding: 0;
+  align-items: center;
 }
 
 // Progress indicator
