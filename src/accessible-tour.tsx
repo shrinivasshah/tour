@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { debounce } from 'lodash';
 import styles from './accessible-tour.module.scss';
 
 interface TourStep {
@@ -6,32 +7,64 @@ interface TourStep {
   content: string;
   targetSelector?: string;
   position?: 'top' | 'right' | 'bottom' | 'left';
+  disableOverlay?: boolean;
+  disableBeacon?: boolean;
 }
 
-interface AccessibleTourProps {
+interface AccessibleWalkTourProps {
   steps: TourStep[];
   isOpen: boolean;
   onClose: () => void;
   onComplete: () => void;
+  className?: string;
+  showProgress?: boolean;
+  showSkipButton?: boolean;
+  showCloseButton?: boolean;
+  showNavigation?: boolean;
+  showPrevButton?: boolean;
+  styles?: {
+    overlay?: React.CSSProperties;
+    spotlight?: React.CSSProperties;
+    tooltip?: React.CSSProperties;
+    content?: React.CSSProperties;
+    buttonNext?: React.CSSProperties;
+    buttonBack?: React.CSSProperties;
+    buttonSkip?: React.CSSProperties;
+    buttonClose?: React.CSSProperties;
+  };
 }
 
-const AccessibleTour: React.FC<AccessibleTourProps> = ({
+const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
   steps,
   isOpen,
   onClose,
   onComplete,
+  className = '',
+  showProgress = true,
+  showSkipButton = true,
+  showCloseButton = true,
+  showNavigation = true,
+  showPrevButton = true,
+  styles: customStyles = {},
 }) => {
   const [currentStep, setCurrentStep] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
-  const [pointerClass, setPointerClass] = useState<string>(styles.pointerUp);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [tooltipPosition, setTooltipPosition] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [tooltipPlacement, setTooltipPlacement] = useState<'top' | 'right' | 'bottom' | 'left'>('bottom');
+  const [beaconVisible, setBeaconVisible] = useState(false);
 
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const spotlightRef = useRef<HTMLDivElement | null>(null);
+  const beaconRef = useRef<HTMLDivElement | null>(null);
   const announcer = useRef<HTMLDivElement>(null);
   const previousActiveElement = useRef<HTMLElement | null>(null);
   const firstFocusableElementRef = useRef<HTMLElement | null>(null);
   const lastFocusableElementRef = useRef<HTMLElement | null>(null);
+  const nextStepRef = useRef<number>(0);
+  const targetElementRef = useRef<Element | null>(null);
+  const scrollListenerRef = useRef<(() => void) | null>(null);
 
   const modifiedElements = useRef<Map<Element, { prop: string; value: string }[]>>(new Map());
 
@@ -43,15 +76,15 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
   };
 
   const setupFocusTrap = useCallback(() => {
-    if (!dialogRef.current) return;
+    if (!tooltipRef.current) return;
 
-    const focusableElements = getFocusableElements(dialogRef.current);
+    const focusableElements = getFocusableElements(tooltipRef.current);
     if (focusableElements.length === 0) return;
 
     firstFocusableElementRef.current = focusableElements[0];
     lastFocusableElementRef.current = focusableElements[focusableElements.length - 1];
 
-    const title = dialogRef.current.querySelector<HTMLElement>('#tour-title');
+    const title = tooltipRef.current.querySelector<HTMLElement>('#tour-title');
     if (title) {
       title.focus();
     } else if (firstFocusableElementRef.current) {
@@ -61,7 +94,7 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (!isVisible || !dialogRef.current) return;
+      if (!isVisible || !tooltipRef.current) return;
 
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -99,21 +132,6 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
     }
   }, []);
 
-  const getPointerClass = (position?: 'top' | 'right' | 'bottom' | 'left'): string => {
-    switch (position) {
-      case 'top':
-        return styles.pointerDown;
-      case 'right':
-        return styles.pointerLeft;
-      case 'bottom':
-        return styles.pointerUp;
-      case 'left':
-        return styles.pointerRight;
-      default:
-        return styles.pointerUp;
-    }
-  };
-
   const setAndTrackStyle = useCallback((element: Element, property: string, value: string) => {
     const originalValue = element instanceof HTMLElement ? element.style[property as any] || '' : '';
 
@@ -131,9 +149,45 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
     }
   }, []);
 
+  const createBeacon = useCallback((targetElement: Element) => {
+    if (beaconRef.current) {
+      beaconRef.current.remove();
+      beaconRef.current = null;
+    }
+
+    const currentTourStep = steps[currentStep];
+    if (currentTourStep.disableBeacon) return;
+
+    const beacon = document.createElement('div');
+    beacon.className = styles.tourBeacon;
+    document.body.appendChild(beacon);
+    beaconRef.current = beacon;
+
+    const targetRect = targetElement.getBoundingClientRect();
+    beacon.style.top = `${window.scrollY + targetRect.top + targetRect.height / 2}px`;
+    beacon.style.left = `${window.scrollX + targetRect.left + targetRect.width / 2}px`;
+
+    // Add animation keyframes if they're not already added
+    if (!document.getElementById('tour-beacon-keyframes')) {
+      const style = document.createElement('style');
+      style.id = 'tour-beacon-keyframes';
+      style.textContent = `
+        @keyframes beaconPulse {
+          0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
+          70% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+          100% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    setBeaconVisible(true);
+    return beacon;
+  }, [currentStep, steps]);
+
   const highlightTarget = useCallback(
     (targetElement: Element) => {
-      const targetRect = targetElement.getBoundingClientRect();
+      targetElementRef.current = targetElement;
 
       if (spotlightRef.current) {
         spotlightRef.current.remove();
@@ -141,15 +195,30 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
       }
 
       const spotlight = document.createElement('div');
-      spotlight.className = styles.targetSpotlight;
+      spotlight.className = styles.tourSpotlight;
       document.body.appendChild(spotlight);
       spotlightRef.current = spotlight;
 
-      const padding = 5;
-      spotlight.style.top = `${targetRect.top - padding}px`;
-      spotlight.style.left = `${targetRect.left - padding}px`;
-      spotlight.style.width = `${targetRect.width + padding * 2}px`;
-      spotlight.style.height = `${targetRect.height + padding * 2}px`;
+      const updateSpotlightPosition = () => {
+        // Get fresh position after scrolling
+        const updatedRect = targetElement.getBoundingClientRect();
+        const padding = 8; // Increased padding
+
+        spotlight.style.top = `${window.scrollY + updatedRect.top - padding}px`;
+        spotlight.style.left = `${window.scrollX + updatedRect.left - padding}px`;
+        spotlight.style.width = `${updatedRect.width + padding * 2}px`;
+        spotlight.style.height = `${updatedRect.height + padding * 2}px`;
+        
+        // Apply custom spotlight styles if provided
+        if (customStyles.spotlight) {
+          Object.entries(customStyles.spotlight).forEach(([key, value]) => {
+            spotlight.style[key as any] = value as string;
+          });
+        }
+      };
+
+      // Initial position
+      updateSpotlightPosition();
 
       if (targetElement instanceof HTMLElement) {
         const computedStyle = window.getComputedStyle(targetElement);
@@ -160,72 +229,170 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
         }
 
         setAndTrackStyle(targetElement, 'zIndex', '10000');
-        setAndTrackStyle(targetElement, 'backgroundColor', 'rgba(255, 255, 255, 0.1)');
       }
 
+      // Scroll into view with smooth behavior
       targetElement.scrollIntoView({
         behavior: 'smooth',
         block: 'center',
         inline: 'center',
       });
+      
+      // Update spotlight position and show beacon in a more structured way
+      const updatePositionsAfterScroll = () => {
+        updateSpotlightPosition();
+        
+        if (!currentTourStep.disableBeacon) {
+          // Hide beacon after a short delay
+          setTimeout(() => {
+            setBeaconVisible(false);
+            if (beaconRef.current) {
+              beaconRef.current.style.display = 'none';
+            }
+          }, 500);
+        }
+      };
+
+      // Allow time for scrolling to complete before updating positions
+      setTimeout(updatePositionsAfterScroll, 400);
+
+      return Promise.resolve();
     },
-    [setAndTrackStyle]
+    [setAndTrackStyle, createBeacon]
   );
 
-  const positionDialog = useCallback(() => {
+  const calculateTooltipPosition = useCallback(() => {
     const currentTourStep = steps[currentStep];
-    if (!currentTourStep.targetSelector || !dialogRef.current) return;
+    if (!currentTourStep.targetSelector || !tooltipRef.current) return;
 
-    const targetElement = document.querySelector(currentTourStep.targetSelector);
+    const targetElement = targetElementRef.current || document.querySelector(currentTourStep.targetSelector);
     if (!targetElement) return;
 
     const targetRect = targetElement.getBoundingClientRect();
-    const dialog = dialogRef.current;
+    const tooltip = tooltipRef.current;
+    const tooltipRect = tooltip.getBoundingClientRect();
     const position = currentTourStep.position || 'bottom';
 
-    const newPointerClass = getPointerClass(position);
-    setPointerClass(newPointerClass);
+    setTooltipPlacement(position);
 
-    highlightTarget(targetElement);
+    const tooltipHeight = tooltipRect.height;
+    const tooltipWidth = tooltipRect.width;
+    const spacing = 15; // Space between target and tooltip
+    const arrowSize = 10; // Size of the tooltip arrow
+
+    let top, left;
 
     switch (position) {
       case 'top':
-        dialog.style.top = `${targetRect.top - dialog.offsetHeight - 20}px`;
-        dialog.style.left = `${targetRect.left + targetRect.width / 2 - dialog.offsetWidth / 2}px`;
+        top = targetRect.top - tooltipHeight - spacing;
+        left = targetRect.left + targetRect.width / 2 - tooltipWidth / 2;
         break;
       case 'right':
-        dialog.style.left = `${targetRect.right + 20}px`;
-        dialog.style.top = `${targetRect.top + targetRect.height / 2 - dialog.offsetHeight / 2}px`;
+        top = targetRect.top + targetRect.height / 2 - tooltipHeight / 2;
+        left = targetRect.right + spacing;
         break;
       case 'bottom':
-        dialog.style.top = `${targetRect.bottom + 20}px`;
-        dialog.style.left = `${targetRect.left + targetRect.width / 2 - dialog.offsetWidth / 2}px`;
+        top = targetRect.bottom + spacing;
+        left = targetRect.left + targetRect.width / 2 - tooltipWidth / 2;
         break;
       case 'left':
-        dialog.style.left = `${targetRect.left - dialog.offsetWidth - 20}px`;
-        dialog.style.top = `${targetRect.top + targetRect.height / 2 - dialog.offsetHeight / 2}px`;
+        top = targetRect.top + targetRect.height / 2 - tooltipHeight / 2;
+        left = targetRect.left - tooltipWidth - spacing;
         break;
     }
 
-    const dialogRect = dialog.getBoundingClientRect();
-    if (dialogRect.left < 0) {
-      dialog.style.left = '10px';
-    } else if (dialogRect.right > window.innerWidth) {
-      dialog.style.left = `${window.innerWidth - dialogRect.width - 10}px`;
+    // Ensure tooltip stays within viewport
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const padding = 10; // Minimum padding from viewport edge
+
+    // Adjust horizontally if needed
+    if (left < padding) {
+      left = padding;
+    } else if (left + tooltipWidth > viewportWidth - padding) {
+      left = viewportWidth - tooltipWidth - padding;
     }
 
-    if (dialogRect.top < 0) {
-      dialog.style.top = '10px';
-    } else if (dialogRect.bottom > window.innerHeight) {
-      dialog.style.top = `${window.innerHeight - dialogRect.height - 10}px`;
+    // Adjust vertically if needed
+    if (top < padding) {
+      top = padding;
+    } else if (top + tooltipHeight > viewportHeight - padding) {
+      top = viewportHeight - tooltipHeight - padding;
     }
-  }, [currentStep, steps, highlightTarget]);
+
+    // Return the new position for the tooltip
+    return {
+      top: window.scrollY + top,
+      left: window.scrollX + left
+    };
+  }, [currentStep, steps]);
+
+  const positionTooltip = useCallback(() => {
+    const position = calculateTooltipPosition();
+    if (position) {
+      setTooltipPosition(position);
+    }
+  }, [calculateTooltipPosition]);
+
+  // Update positions on scroll or resize
+  const updatePositions = useCallback(() => {
+    if (isVisible && !isTransitioning && targetElementRef.current) {
+      // Get fresh position information for the target
+      const targetRect = targetElementRef.current.getBoundingClientRect();
+      const isTargetInViewport = (
+        targetRect.top >= 0 &&
+        targetRect.left >= 0 &&
+        targetRect.bottom <= window.innerHeight &&
+        targetRect.right <= window.innerWidth
+      );
+      
+      // Update spotlight position
+      if (spotlightRef.current) {
+        const padding = 8;
+        
+        spotlightRef.current.style.top = `${window.scrollY + targetRect.top - padding}px`;
+        spotlightRef.current.style.left = `${window.scrollX + targetRect.left - padding}px`;
+      }
+      
+      // Update beacon position if visible
+      if (beaconVisible && beaconRef.current) {
+        beaconRef.current.style.top = `${window.scrollY + targetRect.top + targetRect.height / 2}px`;
+        beaconRef.current.style.left = `${window.scrollX + targetRect.left + targetRect.width / 2}px`;
+      }
+      
+      // Update tooltip position
+      positionTooltip();
+      
+      // If target is out of viewport and we're not already scrolling, scroll to it
+      if (!isTargetInViewport) {
+        targetElementRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+          inline: 'center'
+        });
+      }
+    }
+  }, [isVisible, isTransitioning, positionTooltip, beaconVisible]);
+
+  // Debounced version for resize events
+  const debouncedUpdatePositions = useCallback(
+    debounce(updatePositions, 50),
+    [updatePositions]
+  );
 
   const cleanupHighlight = useCallback(() => {
     if (spotlightRef.current) {
       spotlightRef.current.remove();
       spotlightRef.current = null;
     }
+
+    if (beaconRef.current) {
+      beaconRef.current.remove();
+      beaconRef.current = null;
+    }
+
+    targetElementRef.current = null;
+    setBeaconVisible(false);
 
     if (backdropRef.current) {
       backdropRef.current.style.clipPath = 'none';
@@ -282,30 +449,70 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
 
       if (currentStep < steps.length) {
         const step = steps[currentStep];
-        positionDialog();
-        setupFocusTrap();
+        const targetElement = document.querySelector(step.targetSelector || '');
+        if (targetElement) {
+          highlightTarget(targetElement).then(() => {
+            setTimeout(() => {
+              positionTooltip();
+              setupFocusTrap();
+            }, 100);
+          });
+        }
         announce(`Tour step ${currentStep + 1} of ${steps.length}: ${step.title}. ${step.content}`);
       }
     }
-  }, [currentStep, isVisible, steps, setupFocusTrap, announce, cleanupHighlight, positionDialog]);
+  }, [currentStep, isVisible, steps, positionTooltip, setupFocusTrap, announce, cleanupHighlight, highlightTarget]);
 
   useEffect(() => {
+    // Set up scroll and resize event listeners
     const handleResize = () => {
       if (isVisible) {
-        cleanupHighlight();
-        positionDialog();
+        debouncedUpdatePositions();
       }
     };
 
-    window.addEventListener('resize', handleResize);
+    // Create a scroll handler that constantly updates positions
+    const handleScroll = () => {
+      if (isVisible) {
+        // Use requestAnimationFrame to update during scroll
+        requestAnimationFrame(updatePositions);
+      }
+    };
+
+    // Store the scroll handler reference so we can remove it later
+    scrollListenerRef.current = handleScroll;
+
+    if (isVisible) {
+      window.addEventListener('resize', handleResize);
+      window.addEventListener('scroll', handleScroll, { passive: true });
+    }
+    
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (scrollListenerRef.current) {
+        window.removeEventListener('scroll', scrollListenerRef.current);
+      }
     };
-  }, [isVisible, positionDialog, cleanupHighlight]);
+  }, [isVisible, debouncedUpdatePositions, updatePositions]);
 
   const handleNext = () => {
     if (currentStep < steps.length - 1) {
-      setCurrentStep(currentStep + 1);
+      setIsTransitioning(true);
+      nextStepRef.current = currentStep + 1;
+
+      if (tooltipRef.current) {
+        tooltipRef.current.style.opacity = '0';
+      }
+
+      setTimeout(() => {
+        setCurrentStep(nextStepRef.current);
+        setTimeout(() => {
+          if (tooltipRef.current) {
+            tooltipRef.current.style.opacity = '1';
+          }
+          setIsTransitioning(false);
+        }, 50);
+      }, 200);
     } else {
       handleComplete();
     }
@@ -313,7 +520,22 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
 
   const handlePrevious = () => {
     if (currentStep > 0) {
-      setCurrentStep(currentStep - 1);
+      setIsTransitioning(true);
+      nextStepRef.current = currentStep - 1;
+
+      if (tooltipRef.current) {
+        tooltipRef.current.style.opacity = '0';
+      }
+
+      setTimeout(() => {
+        setCurrentStep(nextStepRef.current);
+        setTimeout(() => {
+          if (tooltipRef.current) {
+            tooltipRef.current.style.opacity = '1';
+          }
+          setIsTransitioning(false);
+        }, 50);
+      }, 200);
     }
   };
 
@@ -328,6 +550,7 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
   }
 
   const currentTourStep = steps[currentStep];
+  const showOverlay = !currentTourStep.disableOverlay;
 
   return (
     <>
@@ -339,55 +562,120 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
         role="status"
       />
 
-      <div
-        ref={backdropRef}
-        className={styles.tourBackdrop}
-        aria-hidden="true"
-        onClick={onClose}
-      />
+      {showOverlay && (
+        <div
+          ref={backdropRef}
+          className={styles.tourBackdrop}
+          aria-hidden="true"
+          onClick={onClose}
+          style={customStyles.overlay}
+        />
+      )}
 
       <div
-        ref={dialogRef}
-        className={`${styles.tourDialog} ${pointerClass}`}
+        ref={tooltipRef}
+        className={`${styles.tourTooltip} ${className} ${isTransitioning ? styles.transitioning : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="tour-title"
         aria-describedby="tour-content"
         onClick={(e) => e.stopPropagation()}
         tabIndex={-1}
+        style={{
+          top: `${tooltipPosition.top}px`,
+          left: `${tooltipPosition.left}px`,
+          ...(customStyles.tooltip || {})
+        }}
       >
-        <header className={styles.tourHeader}>
-          <h2 id="tour-title" tabIndex={-1} className={styles.tourTitle}>
+        {/* Tooltip arrow based on placement */}
+        <div 
+          className={`${styles.tooltipArrow} ${
+            tooltipPlacement === 'top' ? styles.arrowTop : 
+            tooltipPlacement === 'right' ? styles.arrowRight : 
+            tooltipPlacement === 'bottom' ? styles.arrowBottom : 
+            styles.arrowLeft
+          }`}
+        />
+
+        <header className={styles.tooltipHeader}>
+          <h2 id="tour-title" tabIndex={-1} className={styles.tooltipTitle}>
             {currentTourStep.title}
           </h2>
-          <button className={styles.closeButton} aria-label="Close tour" onClick={onClose}>
-            ×
-          </button>
+          {showCloseButton && (
+            <button 
+              aria-label="Close tour" 
+              onClick={onClose}
+              className={styles.closeButton}
+              style={customStyles.buttonClose}
+            >
+              ×
+            </button>
+          )}
         </header>
 
-        <div id="tour-content" className={styles.tourContent}>
+        <div 
+          id="tour-content" 
+          className={styles.tooltipContent}
+          style={customStyles.content}
+        >
           {currentTourStep.content}
         </div>
 
-        <footer className={styles.tourControls}>
-          <div className={styles.tourProgress}>
-            Step {currentStep + 1} of {steps.length}
-          </div>
-          <div className={styles.tourButtons}>
-            {currentStep > 0 && (
-              <button onClick={handlePrevious} aria-label="Previous step">
-                Previous
+        <footer className={styles.tooltipFooter}>
+          {showProgress && (
+            <div className={styles.progressIndicator}>
+              {currentStep + 1} of {steps.length}
+            </div>
+          )}
+          
+          <div className={styles.buttonContainer}>
+            {showSkipButton && (
+              <button 
+                onClick={onClose} 
+                aria-label="Skip tour"
+                className={styles.skipButton}
+                style={customStyles.buttonSkip}
+              >
+                Skip
               </button>
             )}
+            
+            {showNavigation && (
+              <>
+                {showPrevButton && currentStep > 0 && (
+                  <button 
+                    onClick={handlePrevious} 
+                    aria-label="Previous step" 
+                    disabled={isTransitioning}
+                    className={styles.backButton}
+                    style={customStyles.buttonBack}
+                  >
+                    Back
+                  </button>
+                )}
 
-            {currentStep < steps.length - 1 ? (
-              <button onClick={handleNext} aria-label="Next step">
-                Next
-              </button>
-            ) : (
-              <button onClick={handleComplete} aria-label="Complete tour">
-                Finish
-              </button>
+                {currentStep < steps.length - 1 ? (
+                  <button 
+                    onClick={handleNext} 
+                    aria-label="Next step" 
+                    disabled={isTransitioning}
+                    className={styles.nextButton}
+                    style={customStyles.buttonNext}
+                  >
+                    Next
+                  </button>
+                ) : (
+                  <button 
+                    onClick={handleComplete} 
+                    aria-label="Complete tour" 
+                    disabled={isTransitioning}
+                    className={styles.finishButton}
+                    style={customStyles.buttonNext}
+                  >
+                    Finish
+                  </button>
+                )}
+              </>
             )}
           </div>
         </footer>
@@ -396,4 +684,4 @@ const AccessibleTour: React.FC<AccessibleTourProps> = ({
   );
 };
 
-export default AccessibleTour;
+export default AccessibleWalkTour;
