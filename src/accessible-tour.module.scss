@@ -77,13 +77,14 @@ $z-dialog: 100000;
 // Main tooltip container
 .tourTooltip {
   position: absolute;
-  z-index: 10002;
+  z-index: $z-dialog;  // Use the defined z-index variable
   background-color: white;
-  border-radius: 5px;
-  box-shadow: 0 0.5rem 2rem 0 rgba(0, 0, 0, 0.2);
-  padding: 14px 20px;
+  border-radius: $border-radius;  // Use the defined border radius
+  box-shadow: $box-shadow;  // Use the defined box shadow
+  padding: 16px 20px;
   max-width: 350px;
-  transition: opacity 0.2s ease;
+  width: calc(100% - 40px);  // Responsive width with padding
+  transition: $transition;  // Use the defined transition
   
   &.transitioning {
     opacity: 0;
@@ -93,64 +94,87 @@ $z-dialog: 100000;
 // Tooltip arrow
 .tooltipArrow {
   position: absolute;
-  width: 16px;
-  height: 16px;
+  width: $tooltip-size;
+  height: $tooltip-size;
   background-color: white;
   transform: rotate(45deg);
   z-index: -1;
+  box-shadow: $box-shadow;
   
   &.arrowTop {
-    bottom: -8px;
-    left: calc(50% - 8px);
+    bottom: -($tooltip-size / 2);
+    left: calc(50% - #{$tooltip-size / 2});
   }
   
   &.arrowRight {
-    left: -8px;
-    top: calc(50% - 8px);
+    left: -($tooltip-size / 2);
+    top: calc(50% - #{$tooltip-size / 2});
   }
   
   &.arrowBottom {
-    top: -8px;
-    left: calc(50% - 8px);
+    top: -($tooltip-size / 2);
+    left: calc(50% - #{$tooltip-size / 2});
   }
   
   &.arrowLeft {
-    right: -8px;
-    top: calc(50% - 8px);
+    right: -($tooltip-size / 2);
+    top: calc(50% - #{$tooltip-size / 2});
   }
 }
 
 // Tooltip header section
 .tooltipHeader {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  text-align: left;
+  border-bottom: none; // Ensure no border creates a horizontal rule
 }
 
 // Tooltip title
 .tooltipTitle {
   margin: 0;
   font-size: 18px;
-  font-weight: bold;
+  font-weight: 600;
+  color: $text-color;
+  line-height: 1.2;
+  text-align: left;
 }
 
 // Close button
 .closeButton {
   background-color: transparent;
   border: none;
-  font-size: 22px;
+  font-size: 24px;
   cursor: pointer;
   padding: 0;
   line-height: 1;
-  color: #999;
+  color: $text-secondary;
+  transition: $transition;
+  margin-left: 10px;
+  flex-shrink: 0; // Prevent button from shrinking
+  
+  &:hover, &:focus {
+    color: $text-color;
+  }
+  
+  &:focus {
+    outline: 2px solid $primary-color;
+    outline-offset: 2px;
+    border-radius: 50%;
+  }
 }
 
 // Tooltip content
 .tooltipContent {
-  margin-bottom: 15px;
-  font-size: 14px;
+  margin-bottom: 16px;
+  font-size: 15px;
   line-height: 1.5;
+  color: $content-color;
+  text-align: left;
+  padding: 0; // Remove any padding that might create visual separation
+  border-top: none; // Ensure no border creates a horizontal rule
 }
 
 // Tooltip footer
@@ -158,68 +182,93 @@ $z-dialog: 100000;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-top: 12px; // Increased from 4px for better spacing
+  padding-top: 0; // Remove any padding that might create visual separation
+  border-top: none; // Ensure no border creates a horizontal rule
 }
 
 // Progress indicator
 .progressIndicator {
-  font-size: 12px;
-  color: #666;
+  font-size: 13px;
+  color: $text-secondary;
+  font-weight: 500;
 }
 
 // Button container
 .buttonContainer {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   margin-left: auto;
+}
+
+// Common button styles
+%button-base {
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: $transition;
+  
+  &:focus {
+    outline: 2px solid $primary-color;
+    outline-offset: 2px;
+  }
+  
+  &:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
 }
 
 // Skip button
 .skipButton {
+  @extend %button-base;
   background-color: transparent;
   border: none;
-  color: #666;
-  cursor: pointer;
-  padding: 6px 12px;
-  font-size: 14px;
+  color: $text-secondary;
+  padding: 8px;
+  
+  &:hover, &:focus:not(:disabled) {
+    color: $text-color;
+    text-decoration: underline;
+  }
 }
 
 // Back button
 .backButton {
+  @extend %button-base;
   background-color: transparent;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  padding: 6px 12px;
-  cursor: pointer;
-  font-size: 14px;
+  border: 1px solid #e0e0e0;
+  color: $text-color;
+  
+  &:hover:not(:disabled), &:focus:not(:disabled) {
+    background-color: #f5f5f5;
+    border-color: #d0d0d0;
+  }
 }
 
 // Next button
 .nextButton {
-  background-color: #2196F3;
+  @extend %button-base;
+  background-color: $primary-color;
   color: white;
   border: none;
-  border-radius: 4px;
-  padding: 6px 12px;
-  cursor: pointer;
-  font-size: 14px;
   
-  &:disabled {
-    opacity: 0.7;
+  &:hover:not(:disabled), &:focus:not(:disabled) {
+    background-color: $primary-hover;
   }
 }
 
 // Finish button
 .finishButton {
+  @extend %button-base;
   background-color: #4CAF50;
   color: white;
   border: none;
-  border-radius: 4px;
-  padding: 6px 12px;
-  cursor: pointer;
-  font-size: 14px;
   
-  &:disabled {
-    opacity: 0.7;
+  &:hover:not(:disabled), &:focus:not(:disabled) {
+    background-color: #388e3c;
   }
 }
 

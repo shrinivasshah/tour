@@ -629,17 +629,6 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
           )}
           
           <div className={styles.buttonContainer}>
-            {showSkipButton && (
-              <button 
-                onClick={onClose} 
-                aria-label="Skip tour"
-                className={styles.skipButton}
-                style={customStyles.buttonSkip}
-              >
-                Skip
-              </button>
-            )}
-            
             {showNavigation && (
               <>
                 {showPrevButton && currentStep > 0 && (
