@@ -232,12 +232,3 @@ $z-dialog: 9200;
     }
   }
 }
-
-// Transitioning class for animations
-.transitioning {
-  opacity: 0;
-  visibility: hidden; /* Ensure it's fully hidden */
-  transform: scale(0.95);
-  pointer-events: none;
-  transition: opacity 600ms ease, transform 300ms ease, visibility 300ms ease;
-}
