@@ -67,6 +67,8 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
   const scrollListenerRef = useRef<(() => void) | null>(null);
 
   const modifiedElements = useRef<Map<Element, { prop: string; value: string }[]>>(new Map());
+  const elementsWithAriaHidden = useRef<Map<Element, string | null>>(new Map());
+  const mainContentRef = useRef<HTMLElement | null>(null);
 
   const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
     const focusableElements = container.querySelectorAll<HTMLElement>(
@@ -414,6 +416,50 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
     modifiedElements.current.clear();
   }, []);
 
+  const makeBackgroundElementsInert = useCallback(() => {
+    const mainContent = document.querySelector('main') || 
+                        document.querySelector('#root') || 
+                        document.querySelector('#app') ||
+                        document.body;
+    
+    mainContentRef.current = mainContent as HTMLElement;
+    
+    if (mainContent) {
+      elementsWithAriaHidden.current.clear();
+      
+      Array.from(mainContent.children).forEach(child => {
+        if (child === tooltipRef.current || 
+            child === backdropRef.current ||
+            child === spotlightRef.current ||
+            child === beaconRef.current ||
+            child === announcer.current) {
+          return;
+        }
+        
+        const originalAriaHidden = child.getAttribute('aria-hidden');
+        elementsWithAriaHidden.current.set(child, originalAriaHidden);
+        
+        child.setAttribute('aria-hidden', 'true');
+      });
+    }
+    
+    if (targetElementRef.current) {
+      targetElementRef.current.setAttribute('aria-hidden', 'false');
+    }
+  }, []);
+
+  const restoreBackgroundElements = useCallback(() => {
+    elementsWithAriaHidden.current.forEach((value, element) => {
+      if (value === null) {
+        element.removeAttribute('aria-hidden');
+      } else {
+        element.setAttribute('aria-hidden', value);
+      }
+    });
+    
+    elementsWithAriaHidden.current.clear();
+  }, []);
+
   useEffect(() => {
     if (isOpen) {
       setIsVisible(true);
@@ -425,10 +471,14 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
       }
 
       document.body.addEventListener('keydown', handleKeyDown);
+      
+      makeBackgroundElementsInert();
     } else {
       setIsVisible(false);
       cleanupHighlight();
       setCurrentStep(0);
+      
+      restoreBackgroundElements();
 
       if (previousActiveElement.current && 'focus' in previousActiveElement.current) {
         previousActiveElement.current.focus();
@@ -440,8 +490,9 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
     return () => {
       document.body.removeEventListener('keydown', handleKeyDown);
       cleanupHighlight();
+      restoreBackgroundElements();
     };
-  }, [isOpen, currentStep, steps, handleKeyDown, announce, cleanupHighlight]);
+  }, [isOpen, currentStep, steps, handleKeyDown, announce, cleanupHighlight, makeBackgroundElementsInert, restoreBackgroundElements]);
 
   useEffect(() => {
     if (isVisible) {
@@ -455,31 +506,33 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
             setTimeout(() => {
               positionTooltip();
               setupFocusTrap();
+              
+              makeBackgroundElementsInert();
+              
+              if (targetElementRef.current) {
+                targetElementRef.current.setAttribute('aria-hidden', 'false');
+              }
             }, 100);
           });
         }
         announce(`Tour step ${currentStep + 1} of ${steps.length}: ${step.title}. ${step.content}`);
       }
     }
-  }, [currentStep, isVisible, steps, positionTooltip, setupFocusTrap, announce, cleanupHighlight, highlightTarget]);
+  }, [currentStep, isVisible, steps, positionTooltip, setupFocusTrap, announce, cleanupHighlight, highlightTarget, makeBackgroundElementsInert]);
 
   useEffect(() => {
-    // Set up scroll and resize event listeners
     const handleResize = () => {
       if (isVisible) {
         debouncedUpdatePositions();
       }
     };
 
-    // Create a scroll handler that constantly updates positions
     const handleScroll = () => {
       if (isVisible) {
-        // Use requestAnimationFrame to update during scroll
         requestAnimationFrame(updatePositions);
       }
     };
 
-    // Store the scroll handler reference so we can remove it later
     scrollListenerRef.current = handleScroll;
 
     if (isVisible) {
@@ -587,7 +640,6 @@ const AccessibleWalkTour: React.FC<AccessibleWalkTourProps> = ({
           ...(customStyles.tooltip || {})
         }}
       >
-        {/* Tooltip arrow based on placement */}
         <div 
           className={`${styles.tooltipArrow} ${
             tooltipPlacement === 'top' ? styles.arrowTop : 
